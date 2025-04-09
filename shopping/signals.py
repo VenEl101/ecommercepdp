@@ -12,5 +12,3 @@ def update_order_status(sender, instance, **kwargs):
     if instance.status == 'completed' and order.status == 'P':
         order.status = 'A'
         order.save()
-    
-    
