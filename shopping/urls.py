@@ -1,7 +1,9 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
 from rest_framework.authtoken import views
-from .views import ProductDetailView, ProductsView, CartViewSet, OrderViewSet, PersonalDetailViewSet, CardDetailViewSet, CategoryViewSet, CategoryProductsViewSet
+from .views import ProductDetailView, ProductsView, CartViewSet, OrderViewSet, PersonalDetailViewSet, CardDetailViewSet, \
+    CategoryViewSet, CategoryProductsViewSet, PaymentView
+
 router = DefaultRouter()
 
 
@@ -23,4 +25,6 @@ urlpatterns = [
     path('products/<int:id>/', ProductDetailView.as_view(), name='product-detail'),
     # path('category/<str:category>/', .as_view(), name='category-products'),
     path('auth/', views.obtain_auth_token),
+    path('payment/', PaymentView.as_view(), name='payment'),
+
 ]

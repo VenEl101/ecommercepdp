@@ -1,16 +1,20 @@
-from django.shortcuts import render
-from rest_framework import viewsets, generics, status
 from django.db import transaction
-from rest_framework.permissions import IsAuthenticated
-
-from .models import Product, ProductItem, Cart, CartItem, Order, OrderItem, Favorite, ShippingAddress, PaymentCard, ProductCategory
-from accounts.models import User
-from .serializers import CartSerializer, OrderSerializer, ProductListSerializer, ProductDetailSerializer, AddItemSerializer, FavouriteSerializer, ShippingAddressSerializer, UserInfoSerializer, CardDetailSerializer, ReduceItemSerializer, ProductCategorySerializer
-from rest_framework.response import Response
+from django.shortcuts import get_object_or_404
+from rest_framework import filters
+from rest_framework import viewsets, generics, status
 from rest_framework.authentication import TokenAuthentication
 from rest_framework.decorators import action
-from rest_framework import filters
-from rest_framework.views import APIView
+from rest_framework.exceptions import ValidationError, NotFound
+from rest_framework.generics import CreateAPIView
+from rest_framework.permissions import AllowAny
+from rest_framework.response import Response
+
+from accounts.models import User
+from .models import Product, ProductItem, Cart, CartItem, Order, OrderItem, Favorite, ShippingAddress, PaymentCard, \
+    ProductCategory
+from .serializers import CartSerializer, OrderSerializer, ProductListSerializer, ProductDetailSerializer, \
+    AddItemSerializer, FavouriteSerializer, ShippingAddressSerializer, UserInfoSerializer, CardDetailSerializer, \
+    ReduceItemSerializer, ProductCategorySerializer, PaymentSerializer
 
 
 class ProductsView(generics.ListAPIView):
@@ -18,7 +22,6 @@ class ProductsView(generics.ListAPIView):
     serializer_class = ProductListSerializer
     filter_backends = [filters.SearchFilter]
     search_fields = ["name"]
-
 
 
 class ProductDetailView(generics.RetrieveAPIView):
@@ -34,14 +37,12 @@ class CategoryViewSet(viewsets.ReadOnlyModelViewSet):
         return ProductCategory.objects.all()
 
 
-
 class CategoryProductsViewSet(viewsets.ReadOnlyModelViewSet):
     serializer_class = ProductListSerializer
 
-
     category = 1
 
-    def get_queryset(self):   
+    def get_queryset(self):
         return Product.objects.filter(category=self.category)
 
 
@@ -49,17 +50,13 @@ class ClothesCategory(CategoryProductsViewSet):
     category_id = 1
 
 
-
 class CartViewSet(viewsets.ModelViewSet):
-    
     serializer_class = CartSerializer
-    authentication_classes = (TokenAuthentication,)
-    permission_classes = (IsAuthenticated,)
-    
+    #     authentication_classes = (TokenAuthentication,)
+    permission_classes = (AllowAny,)
+
     def get_queryset(self):
         return Cart.objects.filter(user=self.request.user)
-    
-
 
     @action(detail=True, methods=['post'], url_path='add-item')
     def add_item(self, request, pk=None):
@@ -72,9 +69,8 @@ class CartViewSet(viewsets.ModelViewSet):
                 product_id = serializer.validated_data['product_id']
                 quantity = serializer.validated_data['quantity']
 
-                
                 product = ProductItem.objects.get(id=product_id)
-                
+
                 if quantity <= 0:
                     raise ValidationError({"quantity": "Must be positive number"})
 
@@ -124,24 +120,21 @@ class CartViewSet(viewsets.ModelViewSet):
                 if quantity <= 0:
                     raise ValidationError({"quantity": "Must be positive number"})
 
-               
                 product = ProductItem.objects.get(id=product_id)
                 cart_item = CartItem.objects.get(
-                    cart=cart, 
+                    cart=cart,
                     product=product
                 )
 
                 if quantity > cart_item.prod_quant:
-                    quantity = cart_item.prod_quant  
+                    quantity = cart_item.prod_quant
 
-                
                 cart_item.prod_quant -= quantity
                 if cart_item.prod_quant <= 0:
                     cart_item.delete()
                 else:
                     cart_item.save()
 
-                
                 product.stock_quantity += quantity
                 product.save()
 
@@ -159,25 +152,20 @@ class CartViewSet(viewsets.ModelViewSet):
         except Exception as e:
             raise ValidationError(detail=str(e))
 
-        
-    
-        
-    
-    
     @action(detail=True, methods=['get', 'post'])
     def checkout(self, request, pk=None):
         cart = self.get_object()
-    
+
         if not cart.items.exists():
             return Response(
                 {'detail': 'Your cart is empty'},
-                status=400 
+                status=400
             )
 
         try:
-        
+
             with transaction.atomic():
-            
+
                 order = Order.objects.create(
                     user=request.user,
                     shipping=cart.shipping,
@@ -187,13 +175,12 @@ class CartViewSet(viewsets.ModelViewSet):
                     total_price=cart.bagtotal
                 )
 
-            
                 order_items = []
                 for cart_item in cart.items.all():
-                
+
                     if cart_item.product.stock_quantity < cart_item.prod_quant:
                         raise Exception(f"Not enough stock for {cart_item.product.name}")
-                
+
                     order_item = OrderItem.objects.create(
                         order=order,
                         product_items=cart_item.product,
@@ -201,12 +188,10 @@ class CartViewSet(viewsets.ModelViewSet):
                         price_at_purchase=cart_item.product.current_price,
                     )
                     order_items.append(order_item)
-                
-                
+
                     cart_item.product.stock_quantity -= cart_item.prod_quant
                     cart_item.product.save()
 
-            
                 cart.items.all().delete()
 
                 serializer = OrderSerializer(order)
@@ -217,47 +202,33 @@ class CartViewSet(viewsets.ModelViewSet):
                         "order": serializer.data,
                         "message": "Order successfully created!"
                     },
-                    status=201  
+                    status=201
                 )
-            
+
         except Exception as e:
             return Response(
                 {
                     "success": False,
                     "detail": f"An error occurred during checkout: {str(e)}"
                 },
-                status=400  
+                status=400
             )
-        
-    
-
-
-
-
-
 
 
 class OrderViewSet(viewsets.ModelViewSet):
-
     serializer_class = OrderSerializer
     authentication_classes = (TokenAuthentication,)
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (AllowAny,)
 
     def get_queryset(self):
         return Order.objects.filter(user=self.request.user)
 
 
-    
-
-
-
 class FavoritesViewSet(viewsets.ModelViewSet):
     serializer_class = FavouriteSerializer
 
-
     def get_queryset(self):
         return Favorite.objects.filter(user=self.request.user)
-    
 
 
 class ShippingViewSet(viewsets.ModelViewSet):
@@ -265,43 +236,42 @@ class ShippingViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return ShippingAddress.objects.filter(user=self.request.user)
-    
 
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
-
-    
-
-    
-
 
 
 class PersonalDetailViewSet(viewsets.ModelViewSet):
     serializer_class = UserInfoSerializer
 
-
     def get_queryset(self):
         return User.objects.filter(email=self.request.user)
-    
-
-
 
 
 class CardDetailViewSet(viewsets.ModelViewSet):
-
     serializer_class = CardDetailSerializer
     authentication_classes = (TokenAuthentication,)
-    permission_classes = (IsAuthenticated,)
+    permission_classes = (AllowAny,)
 
     def get_queryset(self):
         return PaymentCard.objects.filter(user=self.request.user)
 
-    
     def perform_create(self, serializer):
         serializer.save(user=self.request.user)
 
 
+class PaymentView(CreateAPIView):
+    serializer_class = PaymentSerializer
 
-# class PaymentView(APIView):
-#     def post(self, request)
+    def post(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        if serializer.is_valid():
+            order = serializer.validated_data.get('order')
+            get_object_or_404(Order, id=order.id)
 
+            payment = serializer.save()
+            return Response({
+                'message': 'Payment successful',
+                'payment_id': payment.id
+            }, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
